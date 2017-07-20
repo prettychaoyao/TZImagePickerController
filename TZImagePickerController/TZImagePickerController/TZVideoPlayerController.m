@@ -20,18 +20,37 @@
     UIImage *_cover;
     
     UIView *_toolBar;
-    UIButton *_okButton;
+    UIButton *_doneButton;
     UIProgressView *_progress;
+    
+    UIStatusBarStyle _originStatusBarStyle;
 }
 @end
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 @implementation TZVideoPlayerController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor blackColor];
-    self.navigationItem.title = @"视频预览";
+    TZImagePickerController *tzImagePickerVc = (TZImagePickerController *)self.navigationController;
+    if (tzImagePickerVc) {
+        self.navigationItem.title = tzImagePickerVc.previewBtnTitleStr;
+    }
     [self configMoviePlayer];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    _originStatusBarStyle = [UIApplication sharedApplication].statusBarStyle;
+    [UIApplication sharedApplication].statusBarStyle = iOS7Later ? UIStatusBarStyleLightContent : UIStatusBarStyleBlackOpaque;
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [UIApplication sharedApplication].statusBarStyle = _originStatusBarStyle;
 }
 
 - (void)configMoviePlayer {
@@ -53,7 +72,7 @@
 }
 
 /// Show progress，do it next time / 给播放器添加进度更新,下次加上
--(void)addProgressObserver{
+- (void)addProgressObserver{
     AVPlayerItem *playerItem = _player.currentItem;
     UIProgressView *progress = _progress;
     [_player addPeriodicTimeObserverForInterval:CMTimeMake(1.0, 1.0) queue:dispatch_get_main_queue() usingBlock:^(CMTime time) {
@@ -77,18 +96,21 @@
 - (void)configBottomToolBar {
     _toolBar = [[UIView alloc] initWithFrame:CGRectMake(0, self.view.tz_height - 44, self.view.tz_width, 44)];
     CGFloat rgb = 34 / 255.0;
-    _toolBar.backgroundColor = [UIColor colorWithRed:rgb green:rgb blue:rgb alpha:1.0];
-    _toolBar.alpha = 0.7;
+    _toolBar.backgroundColor = [UIColor colorWithRed:rgb green:rgb blue:rgb alpha:0.7];
     
-    _okButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    _okButton.frame = CGRectMake(self.view.tz_width - 44 - 12, 0, 44, 44);
-    _okButton.titleLabel.font = [UIFont systemFontOfSize:16];
-    [_okButton addTarget:self action:@selector(okButtonClick) forControlEvents:UIControlEventTouchUpInside];
-    [_okButton setTitle:@"确定" forState:UIControlStateNormal];
-    TZImagePickerController *imagePickerVc = (TZImagePickerController *)self.navigationController;
-    [_okButton setTitleColor:imagePickerVc.oKButtonTitleColorNormal forState:UIControlStateNormal];
-    
-    [_toolBar addSubview:_okButton];
+    _doneButton = [UIButton buttonWithType:UIButtonTypeCustom];
+    _doneButton.frame = CGRectMake(self.view.tz_width - 44 - 12, 0, 44, 44);
+    _doneButton.titleLabel.font = [UIFont systemFontOfSize:16];
+    [_doneButton addTarget:self action:@selector(doneButtonClick) forControlEvents:UIControlEventTouchUpInside];
+    TZImagePickerController *tzImagePickerVc = (TZImagePickerController *)self.navigationController;
+    if (tzImagePickerVc) {
+        [_doneButton setTitle:tzImagePickerVc.doneBtnTitleStr forState:UIControlStateNormal];
+        [_doneButton setTitleColor:tzImagePickerVc.oKButtonTitleColorNormal forState:UIControlStateNormal];
+    } else {
+        [_doneButton setTitle:[NSBundle tz_localizedStringForKey:@"Done"] forState:UIControlStateNormal];
+        [_doneButton setTitleColor:[UIColor colorWithRed:(83/255.0) green:(179/255.0) blue:(17/255.0) alpha:1.0] forState:UIControlStateNormal];
+    }
+    [_toolBar addSubview:_doneButton];
     [self.view addSubview:_toolBar];
 }
 
@@ -103,26 +125,36 @@
         [self.navigationController setNavigationBarHidden:YES];
         _toolBar.hidden = YES;
         [_playButton setImage:nil forState:UIControlStateNormal];
-        if (iOS7Later) [UIApplication sharedApplication].statusBarHidden = YES;
+        if (!TZ_isGlobalHideStatusBar) {
+            if (iOS7Later) [UIApplication sharedApplication].statusBarHidden = YES;
+        }
     } else {
         [self pausePlayerAndShowNaviBar];
     }
 }
 
-- (void)okButtonClick {
+- (void)doneButtonClick {
+    TZImagePickerController *imagePickerVc = (TZImagePickerController *)self.navigationController;
+    if (self.navigationController) {
+        if (imagePickerVc.autoDismiss) {
+            [self.navigationController dismissViewControllerAnimated:YES completion:^{
+                [self callDelegateMethod];
+            }];
+        }
+    } else {
+        [self dismissViewControllerAnimated:YES completion:^{
+            [self callDelegateMethod];
+        }];
+    }
+}
+
+- (void)callDelegateMethod {
     TZImagePickerController *imagePickerVc = (TZImagePickerController *)self.navigationController;
     if ([imagePickerVc.pickerDelegate respondsToSelector:@selector(imagePickerController:didFinishPickingVideo:sourceAssets:)]) {
         [imagePickerVc.pickerDelegate imagePickerController:imagePickerVc didFinishPickingVideo:_cover sourceAssets:_model.asset];
     }
     if (imagePickerVc.didFinishPickingVideoHandle) {
         imagePickerVc.didFinishPickingVideoHandle(_cover,_model.asset);
-    }
-    if (self.navigationController) {
-        if (imagePickerVc.autoDismiss) {
-            [self.navigationController dismissViewControllerAnimated:YES completion:nil];
-        }
-    } else {
-        [self dismissViewControllerAnimated:YES completion:nil];
     }
 }
 
@@ -133,11 +165,16 @@
     _toolBar.hidden = NO;
     [self.navigationController setNavigationBarHidden:NO];
     [_playButton setImage:[UIImage imageNamedFromMyBundle:@"MMVideoPreviewPlay.png"] forState:UIControlStateNormal];
-    if (iOS7Later) [UIApplication sharedApplication].statusBarHidden = NO;
+    
+    if (!TZ_isGlobalHideStatusBar) {
+        if (iOS7Later) [UIApplication sharedApplication].statusBarHidden = NO;
+    }
 }
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
+
+#pragma clang diagnostic pop
 
 @end
